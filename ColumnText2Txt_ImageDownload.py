@@ -1,3 +1,5 @@
+# 将指定列数据写入txt文件，并下载指定列的白底图片
+
 import os
 import requests
 import json

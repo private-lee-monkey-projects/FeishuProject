@@ -5,12 +5,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="360a7991-650d-4d67-aab5-02d6e5306222" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/FeishuProject.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/ColumnText2Txt_ImageDownload.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ColumnText2Txt_ImageDownload.py" beforeDir="false" afterPath="$PROJECT_DIR$/ColumnText2Txt_ImageDownload.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/UploadText.py" beforeDir="false" afterPath="$PROJECT_DIR$/UploadText.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -75,7 +71,7 @@
       <workItem from="1756285348712" duration="44000" />
       <workItem from="1756287883350" duration="541000" />
       <workItem from="1756349862598" duration="130000" />
-      <workItem from="1756362370892" duration="391000" />
+      <workItem from="1756362370892" duration="870000" />
     </task>
     <servers />
   </component>
