@@ -6,12 +6,13 @@ import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse, parse_qs
 import lark_oapi as lark
+import time
 
 # 飞书API的基本配置
 APP_ID = "cli_a75078bf38db900c"
 APP_SECRET = "Qof8bNbAgoDpBEBF6T1DMdKOML8SRFIh"
-SPREADSHEET_URL = "https://caka-labs.feishu.cn/wiki/LmTQwAkMqiGzukkDXSecZZ5ancK?table=tblfcNLGbDoLeBio&view=vewNFUVeGq"
-Picture_DIR = r"D:\PythonProject\FeishuProject\TestPictures"
+SPREADSHEET_URL = "https://caka-labs.feishu.cn/base/AJC8bGJrnalMKwsQyIBcRPfAnld?table=tbl1P0OzYGDy6Iea&view=vewDcfKbcH"
+Picture_DIR = r"D:\PycharmProjects\FeishuProject\TestPictures"
 os.makedirs(Picture_DIR, exist_ok=True)
 
 # 获取飞书访问令牌
@@ -38,7 +39,7 @@ def extract_view_id(url: str) -> str:
     qs = parse_qs(urlparse(url).query)
     return (qs.get("view") or [""])[0]  # 可能为空
 
-# 获取表格数据
+# 获取多维表格数据
 def get_spreadsheet_data(spreadsheet_url, client):
     app_token = extract_spreadsheet_id(spreadsheet_url) 
     table_id = extract_table_id(spreadsheet_url)
@@ -134,14 +135,15 @@ def update_picture(record_id, fields_data, access_token, spreadsheet_url):
                 continue
                 
             # 第一步：上传图片文件到飞书
-            upload_url = "https://open.feishu.cn/open-apis/im/v1/files"
+            upload_url = "https://open.feishu.cn/open-apis/drive/v1/medias/upload_all"
             headers = {"Authorization": f"Bearer {access_token}"}
             
             with open(image_path, 'rb') as f:
-                files = {'file': f}
-                data = {'type': 'image', 'image_type': 'message'}
+                files = {'file': (os.path.basename(image_path), f, 'image/png')}
+                data = {'type': 'image'}
                 
-                upload_resp = requests.post(upload_url, headers=headers, files=files, data=data)
+                # 设置较长的超时时间，处理大文件上传
+                upload_resp = requests.post(upload_url, headers=headers, files=files, data=data, timeout=60)
                 upload_resp.raise_for_status()
                 upload_result = upload_resp.json()
                 
@@ -161,6 +163,9 @@ def update_picture(record_id, fields_data, access_token, spreadsheet_url):
                     "type": "image"
                 })
                 print(f"图片 {image_path} 上传成功")
+                
+                # 添加延迟，避免网络拥塞
+                time.sleep(1)
         
         if not uploaded_images:
             print(f"没有图片上传成功")
@@ -177,7 +182,8 @@ def update_picture(record_id, fields_data, access_token, spreadsheet_url):
         update_headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json; charset=utf-8"}
         update_payload = {"fields": image_field_data}
         
-        update_resp = requests.put(update_url, headers=update_headers, data=json.dumps(update_payload))
+        # 设置超时时间
+        update_resp = requests.put(update_url, headers=update_headers, data=json.dumps(update_payload), timeout=30)
         update_resp.raise_for_status()
         update_result = update_resp.json()
         
@@ -202,7 +208,7 @@ def update_picture_with_retry(record_id, fields_data, access_token, spreadsheet_
 
 # 写入逻辑：按"文本"匹配，把图片上传到"图片"列
 def write_pictures_to_bitable(records, access_token, picture_map, spreadsheet_url):
-    with ThreadPoolExecutor(max_workers=5) as executor:  # 图片上传用较少线程避免API限制
+    with ThreadPoolExecutor(max_workers=10) as executor:  # 参考UploadText.py的成功设置
         futures = []
         for rec in records:
             record_id = rec.get("record_id")
@@ -269,9 +275,11 @@ def main():
         client = lark.Client.builder().app_id(APP_ID).app_secret(APP_SECRET).log_level(lark.LogLevel.DEBUG).build()
 
         records = get_spreadsheet_data(SPREADSHEET_URL, client)
+        print(records)
         print(f"表格数据已获取，共 {len(records)} 条")
 
         picture_map = read_picture_directory(Picture_DIR)
+        print(picture_map)
         print(f"图片文件读取完成，共 {len(picture_map)} 个")
 
         write_pictures_to_bitable(records, access_token, picture_map, SPREADSHEET_URL)

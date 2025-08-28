@@ -10,7 +10,7 @@ import lark_oapi as lark
 # 飞书API的基本配置
 APP_ID = "cli_a75078bf38db900c"
 APP_SECRET = "Qof8bNbAgoDpBEBF6T1DMdKOML8SRFIh"
-SPREADSHEET_URL = "https://caka-labs.feishu.cn/wiki/LmTQwAkMqiGzukkDXSecZZ5ancK?table=tblfcNLGbDoLeBio&view=vewNFUVeGq"
+SPREADSHEET_URL = "https://caka-labs.feishu.cn/base/AJC8bGJrnalMKwsQyIBcRPfAnld?table=tbl1P0OzYGDy6Iea&view=vewDcfKbcH"
 TXT_DIR = r"C:\Users\xuexun\PycharmProjects\PythonProject\飞书\利丰实验\女1"
 os.makedirs(TXT_DIR, exist_ok=True)
 
