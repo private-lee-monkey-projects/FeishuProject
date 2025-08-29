@@ -1,5 +1,3 @@
-# 将txt文件内容写入飞书表格的指定列
-
 import os
 import json
 import requests
@@ -7,14 +5,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse, parse_qs
 import lark_oapi as lark
 
-# 飞书API的基本配置
+# ========= 配置 =========
 APP_ID = "cli_a75078bf38db900c"
 APP_SECRET = "Qof8bNbAgoDpBEBF6T1DMdKOML8SRFIh"
-SPREADSHEET_URL = "https://caka-labs.feishu.cn/base/AJC8bGJrnalMKwsQyIBcRPfAnld?table=tbl1P0OzYGDy6Iea&view=vewDcfKbcH"
-TXT_DIR = r"C:\Users\xuexun\PycharmProjects\PythonProject\飞书\利丰实验\女1"
+SPREADSHEET_URL = "https://caka-labs.feishu.cn/base/VmlLbVZgwa1GgXsMCjjcS89MnqL?table=tblOwIVn70DBBl1Z&view=vewC9CjYUc"
+TXT_DIR = r"D:\MonkeyProjects\FeishuProject\TestTxt"
 os.makedirs(TXT_DIR, exist_ok=True)
 
-# 获取飞书访问令牌
+# ========= 认证 =========
 def get_access_token(app_id, app_secret):
     url = "https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal/"
     headers = {"Content-Type": "application/json"}
@@ -25,7 +23,7 @@ def get_access_token(app_id, app_secret):
         return data["app_access_token"]
     raise Exception("获取访问令牌失败: " + str(data))
 
-# URL 解析
+# ========= URL 解析 =========
 def extract_spreadsheet_id(url: str) -> str:
     path = urlparse(url).path.rstrip("/")
     return path.split("/")[-1]
@@ -38,7 +36,7 @@ def extract_view_id(url: str) -> str:
     qs = parse_qs(urlparse(url).query)
     return (qs.get("view") or [""])[0]  # 可能为空
 
-# 获取表格数据
+# ========= 获取表数据 =========
 def get_spreadsheet_data(spreadsheet_url, client):
     app_token = extract_spreadsheet_id(spreadsheet_url)
     table_id = extract_table_id(spreadsheet_url)
@@ -77,11 +75,11 @@ def get_spreadsheet_data(spreadsheet_url, client):
         page_token = obj.get("page_token")
     return all_records
 
-# 读取txt文件
+# ========= 读取 TXT 目录 =========
 def read_txt_directory(txt_dir):
     mapping = {}
     if not os.path.isdir(txt_dir):
-        print(f"错误:TXT 目录不存在：{txt_dir}")
+        print(f"错误：TXT 目录不存在：{txt_dir}")
         return mapping
 
     for fname in os.listdir(txt_dir):
@@ -97,7 +95,7 @@ def read_txt_directory(txt_dir):
             mapping[base] = content
     return mapping
 
-# 提取字段
+# ========= 字段提取（兼容多种返回形态）=========
 def extract_text_field(fields: dict, key: str) -> str:
     val = fields.get(key)
     if val is None:
@@ -126,7 +124,7 @@ def extract_text_field(fields: dict, key: str) -> str:
 
     return str(val).strip()
 
-# 更新记录
+# ========= 更新记录 =========
 def update_record(record_id, fields_data, access_token, spreadsheet_url):
     app_token = extract_spreadsheet_id(spreadsheet_url)
     table_id = extract_table_id(spreadsheet_url)
@@ -156,7 +154,7 @@ def update_with_retry(record_id, fields_data, access_token, spreadsheet_url, max
             print(f"记录 {record_id} 将进行第 {retry + 2} 次重试...")
     print(f"记录 {record_id} 经过 {max_retries} 次重试后仍失败，请检查原因")
 
-# 写入逻辑：按“文本”匹配，把内容写到“计算_json”
+# ========= 写入逻辑：按“文本”匹配，把内容写到“计算_json” =========
 def write_txts_to_bitable(records, access_token, txt_map, spreadsheet_url):
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = []
@@ -187,7 +185,7 @@ def write_txts_to_bitable(records, access_token, txt_map, spreadsheet_url):
             except Exception as e:
                 print(f"线程执行异常: {e}")
 
-# 主流程
+# ========= 主流程 =========
 def main():
     try:
         access_token = get_access_token(APP_ID, APP_SECRET)

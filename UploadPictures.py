@@ -1,47 +1,61 @@
-# 上传图片到飞书表格的指定列
-
 import os
 import json
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse, parse_qs
 import lark_oapi as lark
-import time
 
-# 飞书API的基本配置
+# ========= 配置 =========
 APP_ID = "cli_a75078bf38db900c"
 APP_SECRET = "Qof8bNbAgoDpBEBF6T1DMdKOML8SRFIh"
-SPREADSHEET_URL = "https://caka-labs.feishu.cn/base/AJC8bGJrnalMKwsQyIBcRPfAnld?table=tbl1P0OzYGDy6Iea&view=vewDcfKbcH"
-Picture_DIR = r"D:\PycharmProjects\FeishuProject\TestPictures"
-os.makedirs(Picture_DIR, exist_ok=True)
 
-# 获取飞书访问令牌
-def get_access_token(app_id, app_secret):
-    url = "https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal/"
+SPREADSHEET_URL = "https://caka-labs.feishu.cn/base/JkEebVNSMaoVwDsVh8ccGc8rnqc?table=tblCzf1UGL4n1SDp&view=vew4lnxRfz"
+
+# 本地图片目录
+PICTURE_DIR = r"D:\MonkeyProjects\FeishuProject\TestPictures"
+os.makedirs(PICTURE_DIR, exist_ok=True)
+
+# Bitable 中用来存放图片的字段名（必须是"图片"类型）
+IMAGE_FIELD_NAME = "图片"   # ← 改成你实际的图片字段名
+
+# 用于匹配记录的字段名（记录里该字段的值要等于 图片文件名前缀，不含扩展名）
+MATCH_FIELD_NAME = "文本"           # ← 仍沿用你之前的"文本"字段做匹配
+
+
+# ========= 认证 =========
+def get_tenant_access_token(app_id: str, app_secret: str) -> str:
+    """
+    上传文件和更新记录均建议使用 tenant_access_token（企业自建应用）。
+    """
+    url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal/"
     headers = {"Content-Type": "application/json"}
     payload = {"app_id": app_id, "app_secret": app_secret}
     resp = requests.post(url, headers=headers, data=json.dumps(payload))
     data = resp.json()
     if data.get("code") == 0:
-        return data["app_access_token"]
-    raise Exception("获取访问令牌失败: " + str(data))
+        return data["tenant_access_token"]
+    raise Exception("获取租户访问令牌失败: " + str(data))
 
-# URL 解析
+
+# ========= URL 解析 =========
 def extract_spreadsheet_id(url: str) -> str:
     path = urlparse(url).path.rstrip("/")
     return path.split("/")[-1]
+
 
 def extract_table_id(url: str) -> str:
     qs = parse_qs(urlparse(url).query)
     return (qs.get("table") or [""])[0]
 
+
 def extract_view_id(url: str) -> str:
     qs = parse_qs(urlparse(url).query)
     return (qs.get("view") or [""])[0]  # 可能为空
 
-# 获取多维表格数据
+
+# ========= 获取表数据 =========
 def get_spreadsheet_data(spreadsheet_url, client):
-    app_token = extract_spreadsheet_id(spreadsheet_url) 
+    app_token = extract_spreadsheet_id(spreadsheet_url)
     table_id = extract_table_id(spreadsheet_url)
     view_id = extract_view_id(spreadsheet_url)
 
@@ -78,8 +92,13 @@ def get_spreadsheet_data(spreadsheet_url, client):
         page_token = obj.get("page_token")
     return all_records
 
-# 读取图片文件夹
-def read_picture_directory(picture_dir):
+
+# ========= 读取图片目录（支持1.png、1_1.png等格式）=========
+def read_picture_directory_paths(picture_dir):
+    """
+    返回 { 基础文件名前缀: [图片路径列表] } 的映射
+    支持格式：1.png、1_1.png、1_2.png等，会按文件名排序
+    """
     mapping = {}
     if not os.path.isdir(picture_dir):
         print(f"错误：图片目录不存在：{picture_dir}")
@@ -99,7 +118,7 @@ def read_picture_directory(picture_dir):
             
             if main_key not in mapping:
                 mapping[main_key] = []
-            mapping[main_key].append(fpath)
+            mapping[main_key].append(os.path.abspath(fpath))
     
     # 对每个主键的图片列表进行排序，确保 1_1, 1_2, 1_3 的顺序
     for key in mapping:
@@ -107,139 +126,8 @@ def read_picture_directory(picture_dir):
     
     return mapping
 
-# 上传图片 
-def update_picture(record_id, fields_data, access_token, spreadsheet_url):
-    app_token = extract_spreadsheet_id(spreadsheet_url)
-    table_id = extract_table_id(spreadsheet_url)
-    view_id = extract_view_id(spreadsheet_url)
 
-    print(f"[调试] app_token={app_token}, table_id={table_id}, view_id={view_id or '(未指定)'}")    
-
-    try:
-        # 获取图片路径列表
-        image_paths = fields_data.get("图片路径")
-        if not image_paths:
-            print(f"没有图片路径")
-            return False
-        
-        # 如果只有一张图片，转换为列表格式
-        if isinstance(image_paths, str):
-            image_paths = [image_paths]
-        
-        uploaded_images = []
-        
-        # 逐个上传图片
-        for image_path in image_paths:
-            if not os.path.exists(image_path):
-                print(f"图片文件不存在: {image_path}")
-                continue
-                
-            # 第一步：上传图片文件到飞书
-            upload_url = "https://open.feishu.cn/open-apis/drive/v1/medias/upload_all"
-            headers = {"Authorization": f"Bearer {access_token}"}
-            
-            with open(image_path, 'rb') as f:
-                files = {'file': (os.path.basename(image_path), f, 'image/png')}
-                data = {'type': 'image'}
-                
-                # 设置较长的超时时间，处理大文件上传
-                upload_resp = requests.post(upload_url, headers=headers, files=files, data=data, timeout=60)
-                upload_resp.raise_for_status()
-                upload_result = upload_resp.json()
-                
-                if upload_result.get("code") != 0:
-                    print(f"图片 {image_path} 上传失败: {upload_result.get('msg')}")
-                    continue
-                    
-                file_token = upload_result.get("data", {}).get("file_token")
-                if not file_token:
-                    print(f"图片 {image_path} 未获取到文件token")
-                    continue
-                
-                # 添加到已上传图片列表
-                uploaded_images.append({
-                    "file_token": file_token,
-                    "name": os.path.basename(image_path),
-                    "type": "image"
-                })
-                print(f"图片 {image_path} 上传成功")
-                
-                # 添加延迟，避免网络拥塞
-                time.sleep(1)
-        
-        if not uploaded_images:
-            print(f"没有图片上传成功")
-            return False
-        
-        # 第二步：更新表格记录，将所有图片写入"图片"列
-        update_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/records/{record_id}"
-        
-        # 构建图片字段数据（飞书表格中图片字段的格式，支持多张图片）
-        image_field_data = {
-            "图片": uploaded_images
-        }
-        
-        update_headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json; charset=utf-8"}
-        update_payload = {"fields": image_field_data}
-        
-        # 设置超时时间
-        update_resp = requests.put(update_url, headers=update_headers, data=json.dumps(update_payload), timeout=30)
-        update_resp.raise_for_status()
-        update_result = update_resp.json()
-        
-        if update_result.get("code") == 0:
-            print(f"记录 {record_id} 图片更新成功，共 {len(uploaded_images)} 张图片")
-            return True
-        else:
-            print(f"记录 {record_id} 图片更新失败: {update_result.get('msg')}")
-            return False
-            
-    except Exception as e:
-        print(f"记录 {record_id} 图片上传异常: {e}")
-        return False
-
-def update_picture_with_retry(record_id, fields_data, access_token, spreadsheet_url, max_retries=3):
-    for retry in range(max_retries):
-        if update_picture(record_id, fields_data, access_token, spreadsheet_url):
-            return
-        if retry < max_retries - 1:
-            print(f"记录 {record_id} 图片将进行第 {retry + 2} 次重试...")
-    print(f"记录 {record_id} 图片经过 {max_retries} 次重试后仍失败，请检查原因")
-
-# 写入逻辑：按"文本"匹配，把图片上传到"图片"列
-def write_pictures_to_bitable(records, access_token, picture_map, spreadsheet_url):
-    with ThreadPoolExecutor(max_workers=10) as executor:  # 参考UploadText.py的成功设置
-        futures = []
-        for rec in records:
-            record_id = rec.get("record_id")
-            fields = rec.get("fields", {})
-            text_value = extract_text_field(fields, "文本")
-            if not text_value:
-                continue
-
-            # 对于每个文本值，尝试从图片映射中获取所有图片路径
-            picture_paths = picture_map.get(text_value)
-            if not picture_paths:
-                continue
-
-            # 一次性上传该文本对应的所有图片到同一个单元格
-            futures.append(
-                executor.submit(
-                    update_picture_with_retry,
-                    record_id,
-                    {"图片路径": picture_paths},
-                    access_token,
-                    spreadsheet_url
-                )
-            )
-
-        for fut in as_completed(futures):
-            try:
-                fut.result()
-            except Exception as e:
-                print(f"线程执行异常: {e}")
-
-# 提取字段
+# ========= 兼容提取文本字段（用于匹配记录）=========
 def extract_text_field(fields: dict, key: str) -> str:
     val = fields.get(key)
     if val is None:
@@ -268,25 +156,179 @@ def extract_text_field(fields: dict, key: str) -> str:
 
     return str(val).strip()
 
-# 主流程
+
+# ========= 上传图片文件，获取 file_token =========
+def upload_image_get_token(file_path: str, tenant_access_token: str, app_token: str) -> str:
+    """
+    使用 Drive 媒体上传 (upload_all) 获取 file_token。
+    多维表图片：parent_type=bitable_file，parent_node=Base 的 app_token。
+    """
+    url = "https://open.feishu.cn/open-apis/drive/v1/medias/upload_all"
+    headers = {"Authorization": f"Bearer {tenant_access_token}"}
+
+    file_name = os.path.basename(file_path)
+    file_size = os.path.getsize(file_path)
+    
+    # 根据文件扩展名确定MIME类型
+    ext = os.path.splitext(file_name)[1].lower()
+    mime_type_map = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg', 
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.bmp': 'image/bmp',
+        '.webp': 'image/webp'
+    }
+    mime_type = mime_type_map.get(ext, 'image/jpeg')
+
+    with open(file_path, "rb") as f:
+        files = {
+            # 文件二进制
+            "file": (file_name, f, mime_type),
+            # 其余都是普通 form-data 字段
+            "file_name": (None, file_name),
+            "parent_type": (None, "bitable_file"),   # 关键！！
+            "parent_node": (None, app_token),        # 关键！！= Base 的 app_token
+            "size": (None, str(file_size)),
+        }
+        resp = requests.post(url, headers=headers, files=files)
+    resp.raise_for_status()
+    data = resp.json()
+    if data.get("code") == 0 and data.get("data", {}).get("file_token"):
+        return data["data"]["file_token"]
+    raise Exception(f"上传失败: {data}")
+
+
+# ========= 更新记录（把多个 file_token 写入图片字段）=========
+def update_record_images(record_id, image_field_name, file_tokens, tenant_access_token, spreadsheet_url):
+    app_token = extract_spreadsheet_id(spreadsheet_url)
+    table_id = extract_table_id(spreadsheet_url)
+    url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/records/{record_id}"
+
+    headers = {"Authorization": f"Bearer {tenant_access_token}", "Content-Type": "application/json; charset=utf-8"}
+    
+    # 构建图片字段数据（飞书表格中图片字段的格式，支持多张图片）
+    image_field_data = []
+    for file_token in file_tokens:
+        image_field_data.append({
+            "file_token": file_token,
+            "type": "image"
+        })
+    
+    payload = {
+        "fields": {
+            # 图片字段值是一个数组，每个元素包含 file_token 和 type
+            image_field_name: image_field_data
+        }
+    }
+
+    resp = requests.put(url, headers=headers, data=json.dumps(payload))
+    try:
+        resp.raise_for_status()
+    except Exception as e:
+        raise Exception(f"记录 {record_id} 更新请求失败: {e}, 返回: {resp.text}")
+
+    result = resp.json()
+    if result.get("code") == 0:
+        print(f"记录 {record_id} 已写入 {len(file_tokens)} 张图片到字段: {image_field_name}")
+        return True
+    raise Exception(f"记录 {record_id} 更新失败: {result}")
+
+
+def update_with_retry(record_id, image_field_name, file_tokens, tenant_access_token, spreadsheet_url, max_retries=3):
+    for i in range(max_retries):
+        try:
+            if update_record_images(record_id, image_field_name, file_tokens, tenant_access_token, spreadsheet_url):
+                return
+        except Exception as e:
+            print(f"记录 {record_id} 第 {i+1} 次更新失败: {e}")
+        if i < max_retries - 1:
+            print(f"记录 {record_id} 将进行第 {i + 2} 次重试...")
+    print(f"记录 {record_id} 经过 {max_retries} 次重试后仍失败，请检查原因")
+
+
+# ========= 主逻辑：按"匹配字段(MATCH_FIELD_NAME)" = 图片文件名前缀 来匹配，再把图片作为附件上传 =========
+def write_pictures_to_bitable(records, tenant_access_token, base_to_path_map, spreadsheet_url):
+    app_token = extract_spreadsheet_id(spreadsheet_url)  # ← 新增：拿 app_token 传给上传函数
+    
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = []
+        for rec in records:
+            record_id = rec.get("record_id")
+            fields = rec.get("fields", {})
+            key = extract_text_field(fields, MATCH_FIELD_NAME)
+            if not key:
+                continue
+            image_paths = base_to_path_map.get(key)
+            if not image_paths:
+                continue
+
+            def task(record_id=record_id, image_paths=image_paths):
+                try:
+                    # 上传所有图片并收集file_token
+                    file_tokens = []
+                    for image_path in image_paths:
+                        try:
+                            token = upload_image_get_token(image_path, tenant_access_token, app_token)
+                            file_tokens.append(token)
+                            print(f"图片 {os.path.basename(image_path)} 上传成功，file_token: {token}")
+                        except Exception as e:
+                            print(f"图片 {os.path.basename(image_path)} 上传失败: {e}")
+                            continue
+                    
+                    if file_tokens:
+                        # 批量更新记录，将所有图片写入图片字段
+                        update_with_retry(
+                            record_id, IMAGE_FIELD_NAME, file_tokens,
+                            tenant_access_token, spreadsheet_url
+                        )
+                    else:
+                        print(f"记录 {record_id} 没有成功上传的图片")
+                        
+                except Exception as e:
+                    print(f"处理记录 {record_id} 时发生错误: {e}")
+
+            futures.append(executor.submit(task))
+
+        for fut in as_completed(futures):
+            try:
+                fut.result()
+            except Exception as e:
+                print(f"线程执行异常: {e}")
+
+
+# ========= 主流程 =========
 def main():
     try:
-        access_token = get_access_token(APP_ID, APP_SECRET)
+        print("=== 飞书图片批量上传工具启动 ===")
+        print(f"图片目录: {PICTURE_DIR}")
+        print(f"表格URL: {SPREADSHEET_URL}")
+        
+        tenant_access_token = get_tenant_access_token(APP_ID, APP_SECRET)
+        print("✓ 获取租户访问令牌成功")
+        
         client = lark.Client.builder().app_id(APP_ID).app_secret(APP_SECRET).log_level(lark.LogLevel.DEBUG).build()
+        print("✓ 飞书SDK客户端初始化成功")
 
         records = get_spreadsheet_data(SPREADSHEET_URL, client)
-        print(records)
-        print(f"表格数据已获取，共 {len(records)} 条")
+        print(f"✓ 表格数据已获取，共 {len(records)} 条记录")
 
-        picture_map = read_picture_directory(Picture_DIR)
-        print(picture_map)
-        print(f"图片文件读取完成，共 {len(picture_map)} 个")
+        base_to_path = read_picture_directory_paths(PICTURE_DIR)
+        print(f"✓ 图片文件收集完成，共 {len(base_to_path)} 个不同的文件名前缀")
+        
+        # 显示图片映射信息
+        for key, paths in base_to_path.items():
+            print(f"  - '{key}': {len(paths)} 张图片")
 
-        write_pictures_to_bitable(records, access_token, picture_map, SPREADSHEET_URL)
-        print("图片上传处理完成。")
+        print("\n开始批量上传图片并更新表格...")
+        write_pictures_to_bitable(records, tenant_access_token, base_to_path, SPREADSHEET_URL)
+        print("\n=== 图片上传处理完成 ===")
+        
     except Exception as e:
-        print(f"发生错误: {e}")
+        print(f"\n❌ 程序执行出错: {e}")
+        import traceback
+        traceback.print_exc()
+
 
 if __name__ == "__main__":
     main()
-    
